@@ -1,54 +1,40 @@
 from .config import get_configs, set_config
+from .core import capture
 from pynput import keyboard
-import fire
+import fire, sys, json
 
+def set(config_name, new_value=None):
 
-key_to_hotkey_string = lambda key: f"<{key.name}>" if isinstance(key, keyboard.Key) else str(key.char)
-
-def capture_hotkey():
-
-    hotkeys = []
-    print("Enter your desired hotkey combination. <cmd>+<shift>+<alt>+<space>: ")
-
-    # def on_press(key):
-    #     if key == keyboard.Key.enter:
-    #         return False
-    #     elif key == keyboard.Key.backspace and hotkeys:
-    #         hotkeys.pop()
-    #         print("\r" + " " * 80, end="", flush=True)
-    #         print("\rHotkeys: " + "+".join(key_to_hotkey_string(k) for k in hotkeys), end="", flush=True)
-    #     else:
-    #         hotkeys.append(key)
-    #         print("+" + key_to_hotkey_string(key), end="", flush=True)        
-
-    with keyboard.Listener(on_press=on_press) as listener:  # type: ignore
-        input()
-        listener.join()
-    
-    return "+".join(key_to_hotkey_string(key) for key in hotkeys)
-
-
-
-
-# def set(config_name, new_value=None):
-
-#     if config_name == "hotkey":
+    if config_name == "hotkey":
+        hk_string = input("Enter your desired hotkey combination. <cmd>+<shift>+<alt>+<space>+b: ")
+        hk_string = hk_string.strip()
+        try: keyboard.HotKey.parse(hk_string) 
+        except:
+            print(f"Error: '{hk_string}' is not a valid path"); 
+            sys.exit(1)
         
+        new_value = hk_string
 
-#     set_config(config_name, new_value)
+    set_config(config_name, new_value)
 
-# def on_activate():
-#     print("Command + B pressed!")
-
-
-# with GlobalHotKeys({'<cmd>+b': on_activate}) as h:
-#     h.join()
-
+def list(to_list):
+    if to_list not in ("config", "configs", "cards"):
+        print(f"Error: '{to_list}' not recognizable"); 
+        sys.exit(1)
+    if to_list in ("config", "configs"):
+        print(json.dumps(get_configs(), indent=2))
 
 
 def run_cli():
-    fire.Fire(capture_hotkey)
+    sys.argv = ["-"+arg if len(arg) == 2 and arg[0]=="-" else arg for arg in sys.argv] #hacky, fix?
+
+    fire.Fire({
+    "set": set,
+    "list": list,
+    "capture": capture,
+    })
     
 
 if __name__ == "__main__":
+
     run_cli()

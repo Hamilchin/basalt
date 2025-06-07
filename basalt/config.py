@@ -10,7 +10,10 @@ config_file_path = os.path.join(config_dir, "config.json")
 def default_configs():
     return { 
         "data_dir" : user_data_dir("basalt"), 
-        "hotkey" : "<cmd>+b"
+        "hotkey" : "<cmd>+b", 
+        "prompt" : None,
+        "api_endpoint" : None, 
+        "api_key" : None
         }
 
 def get_configs():
