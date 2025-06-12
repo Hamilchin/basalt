@@ -1,16 +1,19 @@
+import requests
 from basalt.llm import call_model
-from basalt.config import get_configs
 from basalt.database import FlashcardDB as db
 
 from pyperclip import paste
-import json, os
+import json
 
 def create_prompt(custom_prompt, custom_commands, user_inputs):
 
     system_prompt = f"""
         You are a flashcard generator for a spaced repetition app. 
 
-        Given this piece of text, extract a key idea (or ideas) that would help the user learn and remember the knowledge contained in the text. Assume they've read the text already; your aim should be to jog their mind, and do not over-explain. Represent each as a flashcard object in JSON format with "question" and "answer" fields, and possibly more, if the user specifies. Return a single JSON array of such flashcards. 
+        Given this piece of text, extract key ideas that would help the user learn and remember the knowledge
+        contained in the text. Assume they've read the text already; your aim should be to jog their mind, and 
+        do not over-explain. Represent each as a flashcard object in JSON format with "question" and "answer"
+        fields, and possibly more, if the user specifies. Return a single JSON array of such flashcards. 
         
         Use clear, concise phrasing. Each fact should form its own flashcard. 
         Only output valid JSON; no other text. 
@@ -56,13 +59,11 @@ def make_flashcard(content, user_inputs, configs):
     text_resp = call_model(prompt, content, configs)
 
     try:
-        flashcards = extract_json_array(text_resp)
+        flashcard = extract_json_array(text_resp)
     except Exception as e:
         print(f"Error when parsing text response as JSON: {e}")
         return None
     
+    database = db()
 
-    db_path = os.path.join(get_configs()["data_dir"], "flashcard_data.db")
-    database = db(db_path)
-
-    database.store_batch(flashcards, content)
+    
