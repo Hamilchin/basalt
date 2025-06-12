@@ -1,2 +1,3 @@
 plan.txt
-build
+build/
+__pycache__/
