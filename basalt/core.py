@@ -1,9 +1,6 @@
-from basalt.llm import call_model
-from basalt.config import get_configs
-from basalt.database import FlashcardDB as db
-
-from pyperclip import paste
 import json, os
+from basalt.llm import call_model
+from basalt.database import FlashcardDB as db
 
 def create_prompt(custom_prompt, custom_commands, user_inputs):
 
@@ -25,14 +22,14 @@ def create_prompt(custom_prompt, custom_commands, user_inputs):
     for flag, input in user_inputs.items():
         user_prompt += " "
         assert type(input) == str
-        if input == "":
+        if input == True:
             user_prompt += custom_commands[flag]
         else:
-            user_prompt += custom_commands[input].replace("{}", input)
-
-
+            user_prompt += custom_commands[input].replace("{}", str(input))
 
     prompt = system_prompt + user_prompt
+
+    print(prompt)
 
     return prompt
 
@@ -44,16 +41,21 @@ def extract_json_array(text):
         raise ValueError("Not wrapped correctly in square brackets")
     
     return json.loads(text[start : end + 1])
-    
+
 
 def make_flashcard(content, user_inputs, configs):
 
-    if content == None:
-        raise ValueError("No text content passed to make_flashcard!")
+    if not content or not configs:
+        raise ValueError(f"No {"configs" if not configs else "content"} passed to make_flashcard! (this should never happen)")
 
     prompt = create_prompt(configs["custom_prompt"], configs["custom_commands"], user_inputs)
 
+    print("model called")
+
     text_resp = call_model(prompt, content, configs)
+
+    print("model responded")
+
 
     try:
         flashcards = extract_json_array(text_resp)
@@ -62,7 +64,14 @@ def make_flashcard(content, user_inputs, configs):
         return None
     
 
-    db_path = os.path.join(get_configs()["data_dir"], "flashcard_data.db")
-    database = db(db_path)
 
-    database.store_batch(flashcards, content)
+    db_path = os.path.join(configs["data_dir"], "flashcard_data.db")
+
+    print("storing content")
+
+
+    with db(db_path) as database:
+        database.store_batch(flashcards, content)
+
+    print("content stored")
+

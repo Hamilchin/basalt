@@ -9,7 +9,7 @@ config_file_path = os.path.join(config_dir, "config.json")
 
 def default_configs():
     return { 
-        "data_dir" : user_data_dir("basalt"), 
+        "data_dir" : user_data_dir("basalt"), #should look like /Users/alexanderchin/Library/Application Support/basalt
         "hotkey" : "<cmd>+b", 
         "custom_prompt" : "Focus on the important ideas that will help me learn as much as possible. ",
         "custom_commands" : {
@@ -56,7 +56,7 @@ def set_config(config_name, new_value):
         else:
             print(f"Error: '{new_value}' is not a valid path")
             sys.exit(1)
-    elif config_name == "hotkey":
-        configs["hotkey"] = new_value
+    else:
+        configs[config_name] = new_value #NEED TO ADD ERROR CHECKING LIKE DATA_DIR
     
     set_configs(configs)

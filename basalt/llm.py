@@ -1,8 +1,7 @@
 
 import requests
 
-
-def call_model(configs, content, prompt, history=None, temperature=0.7, max_tokens=512):
+def call_model(configs, content, prompt, history=None, temperature=0.7, max_tokens=2048):
     """
     Minimal, vanilla-requests wrapper for the big five providers.
 
