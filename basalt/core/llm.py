@@ -1,7 +1,7 @@
 
 import requests
 
-def call_model(configs, content, prompt, history=None, temperature=0.7, max_tokens=2048):
+def call_model(prompt, content, configs, history=None, temperature=0.7, max_tokens=2048):
     """
     Minimal, vanilla-requests wrapper for the big five providers.
 
@@ -10,7 +10,6 @@ def call_model(configs, content, prompt, history=None, temperature=0.7, max_toke
     """
 
     content = "Text: " + content
-
     api_key, model, provider = configs["api_key"], configs["model"], configs["provider"]
 
 
@@ -20,7 +19,6 @@ def call_model(configs, content, prompt, history=None, temperature=0.7, max_toke
         raise ValueError("model is required; missing from configs in call_model ")
     if not provider:
         raise ValueError("provider is required; missing from configs in call_model")
-
 
     provider = provider.lower()
     history = history or []

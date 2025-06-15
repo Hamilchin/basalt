@@ -1,6 +1,6 @@
 import json, os
-from basalt.llm import call_model
-from basalt.database import FlashcardDB as db
+from basalt.core.llm import call_model
+from basalt.core.database import FlashcardDB as db
 
 def create_prompt(custom_prompt, custom_commands, user_inputs):
 
@@ -15,9 +15,11 @@ def create_prompt(custom_prompt, custom_commands, user_inputs):
     """
 
     user_prompt = ""
-
-    if custom_prompt.strip() or len(user_inputs) != 0: #is this necessary? 
+    
+    if custom_prompt.strip() or (len(user_inputs) != 0): #is this necessary? 
         user_prompt += "Here are the user's custom instructions: \n"
+    
+    user_prompt += custom_prompt
 
     for flag, input in user_inputs.items():
         user_prompt += " "
@@ -28,8 +30,6 @@ def create_prompt(custom_prompt, custom_commands, user_inputs):
             user_prompt += custom_commands[input].replace("{}", str(input))
 
     prompt = system_prompt + user_prompt
-
-    print(prompt)
 
     return prompt
 
@@ -42,6 +42,26 @@ def extract_json_array(text):
     
     return json.loads(text[start : end + 1])
 
+def display_tree(configs, id=None):
+    db_path = os.path.join(configs["data_dir"], "flashcard_data.db")
+    
+    with db(db_path) as database:
+        print_folder_tree(database.get_folder_tree(id))
+
+def print_folder_tree(tree, indent=0):
+    """Recursively pretty-print a folder tree structure."""
+    prefix = "    " * indent + ("├── " if indent else "")
+    if isinstance(tree, list):
+        for node in tree:
+            print_folder_tree(node, indent)
+    else:
+        print(f"{prefix}{tree['name']} (id: {tree['id']})")
+        for card_id in tree["cards"]:
+            print("    " * (indent + 1) + f"- card {card_id}")
+        for child in tree["children"]:
+            print_folder_tree(child, indent + 1)
+
+
 
 def make_flashcard(content, user_inputs, configs):
 
@@ -50,28 +70,19 @@ def make_flashcard(content, user_inputs, configs):
 
     prompt = create_prompt(configs["custom_prompt"], configs["custom_commands"], user_inputs)
 
-    print("model called")
-
+    print("calling model from core")
     text_resp = call_model(prompt, content, configs)
-
-    print("model responded")
-
 
     try:
         flashcards = extract_json_array(text_resp)
     except Exception as e:
-        print(f"Error when parsing text response as JSON: {e}")
         return None
-    
-
 
     db_path = os.path.join(configs["data_dir"], "flashcard_data.db")
 
-    print("storing content")
-
-
     with db(db_path) as database:
+        print("storing batch from core")
         database.store_batch(flashcards, content)
-
-    print("content stored")
+    
+    print("make_flashcard finished from core")
 

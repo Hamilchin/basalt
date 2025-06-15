@@ -1,6 +1,6 @@
 import requests
-from basalt.llm import call_model
-from basalt.database import FlashcardDB as db
+from basalt.core.llm import call_model
+from basalt.core.database import FlashcardDB as db
 
 from pyperclip import paste
 import json

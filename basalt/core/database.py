@@ -182,7 +182,7 @@ def get_cards_in_folder(conn: sqlite3.Connection, folder_id: int):
     rows = cur.fetchall()
     return [_row_to_card(r) for r in rows]
 
-def get_cards_in_folder_by_name(conn: sqlite3.Connection, folder_name: str):
+def get_folder_id_from_name(conn: sqlite3.Connection, folder_name: str):
     """Convenience wrapper that resolves a folder name → id and delegates to get_cards_in_folder."""
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -190,7 +190,7 @@ def get_cards_in_folder_by_name(conn: sqlite3.Connection, folder_name: str):
     row = cur.fetchone()
     if row is None:
         raise ValueError(f"No folder named '{folder_name}' found")
-    return get_cards_in_folder(conn, row["id"])
+    return row["id"]
 
 
 
@@ -249,6 +249,22 @@ def get_folder_tree(conn: sqlite3.Connection, root_id: int | None = None):
         raise ValueError(f"No folder with id {root_id} found")
     return _build_folder_node(conn, root_row)
 
+def print_db(conn: sqlite3.Connection):
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+    tables = [row[0] for row in cursor.fetchall()]
+
+    for table in tables:
+        print(f"\n=== {table.upper()} ===")
+        cursor.execute(f"PRAGMA table_info({table})")
+        cols = [col[1] for col in cursor.fetchall()]
+        print(" | ".join(cols))
+        print("-" * (len(" | ".join(cols))))
+
+        cursor.execute(f"SELECT * FROM {table}")
+        for row in cursor.fetchall():
+            print(" | ".join(str(x) for x in row))
 
 
 # =========== Database class wrapper ================
@@ -309,14 +325,17 @@ class FlashcardDB:
     def get_cards_in_folder(self, folder_id: int):
         return get_cards_in_folder(self.conn, folder_id)
 
-    def get_cards_in_folder_by_name(self, folder_name: str):
-        return get_cards_in_folder_by_name(self.conn, folder_name)
+    def get_folder_id_from_name(self, folder_name: str):
+        return get_folder_id_from_name(self.conn, folder_name)
 
     def get_due_cards(self):
         return get_due_cards(self.conn)
 
     def get_folder_tree(self, root_id: int | None = None):
         return get_folder_tree(self.conn, root_id)
+    
+    def print_db(self):
+        print_db(self.conn)
 
     # ---------- misc ----------
     def close(self):

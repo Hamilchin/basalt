@@ -1,7 +1,8 @@
 from basalt.config import get_configs, set_config
-from pynput import keyboard
-from ipc_client import send_job
+from basalt.core.ipc_client import send_job
+from basalt.core import display_tree
 from pyperclip import paste
+from pynput import keyboard
 import fire, sys, json
 
 def set(config_name, new_value=None):
@@ -15,16 +16,18 @@ def set(config_name, new_value=None):
         new_value = hk_string
     set_config(config_name, new_value)
 
-def list(to_list):
-    if to_list not in ("config", "configs", "cards"):
+def list(to_list="", folder_name=None):
+    to_list = to_list.strip()
+    if to_list not in ("config", "configs", "cards", "folder", ""):
         print(f"Error: '{to_list}' not recognizable"); 
         sys.exit(1)
-    if to_list in ("config", "configs"):
+    elif to_list in ("config", "configs"):
         print(json.dumps(get_configs(), indent=2))
+    elif to_list in ("cards", "folder", ""):
+        display_tree(get_configs(), folder_name)
 
-    
 
-def capture(input, file_path=None, **user_inputs):
+def capture(input=None, file_path=None, **user_inputs):
     configs = get_configs()
     custom_commands = configs["custom_commands"]
 
@@ -47,7 +50,7 @@ def capture(input, file_path=None, **user_inputs):
                 print(f"Error: file does not exist or cannot be read", file=sys.stderr)
                 sys.exit(1)
 
-    elif input == "clip":
+    elif input == "clip" or not input:
         try:
             content = paste()
             if not content.strip():
@@ -68,10 +71,6 @@ def capture(input, file_path=None, **user_inputs):
          "user_inputs" : user_inputs, 
          "configs": configs}
         )
-
-    
-
-
     
 
 
