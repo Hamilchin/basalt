@@ -1,6 +1,6 @@
-from basalt.config import get_configs, set_config
+from basalt.core.config import get_configs, set_config
 from basalt.core.ipc_client import send_job
-from basalt.core import display_tree
+from basalt.core.core import display_tree
 from pyperclip import paste
 from pynput import keyboard
 import fire, sys, json

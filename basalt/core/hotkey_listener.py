@@ -1,6 +1,6 @@
 from basalt.core.ipc_client import send_job
 from pynput.keyboard import GlobalHotKeys
-from basalt.config import get_configs
+from basalt.core.config import get_configs
 from pyperclip import paste
 
 def handle_user_inputs():

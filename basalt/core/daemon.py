@@ -1,7 +1,7 @@
 import signal, os
 from multiprocessing.connection import Listener
 from concurrent.futures import ThreadPoolExecutor
-from basalt.core import make_flashcard
+from basalt.core.core import make_flashcard
 from appdirs import user_cache_dir
 
 executor = ThreadPoolExecutor(max_workers=10)

@@ -1,8 +1,6 @@
 
 from appdirs import user_config_dir, user_data_dir
-import os, json, fire
-import sys
-
+import os, json, sys
 
 config_dir = user_config_dir("basalt")
 config_file_path = os.path.join(config_dir, "config.json")

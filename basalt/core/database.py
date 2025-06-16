@@ -1,7 +1,41 @@
 import sqlite3, json
+from basalt.core.datetime_utils import dt_to_sql_timestamp, now_dt
 
-#all functions assume that the database conn points to has been initialized
-#using init_schema
+
+def make_default_rep_data():
+    return {
+    "history" : []
+    }
+
+DEFAULT_FOLDER_SETTINGS = {
+    "algorithm" : "sm2", 
+    "sm2_settings": {
+        "unit_time": 24,
+        "initial_intervals": [1, 6],
+        "initial_ease": 2.5,
+        "min_ease": 1.3,
+        "ease_bonus": 0.1,
+        "ease_penalty_linear": 0.08,
+        "ease_penalty_quadratic": 0.02,
+        "pass_threshold": 3,
+        "choices": {          # UI → grade map
+            "again": 1,
+            "hard": 3,
+            "good": 4,
+            "easy": 5
+        }
+    },
+    "leitner_settings" : {
+        "buckets" : 4 #not yet supported
+    }
+}
+
+ROOT_FOLDER_DEFAULTS = {
+    "id" : 0, 
+    "name" : "root", 
+    "parent_id" : None, 
+    "folder_settings" : DEFAULT_FOLDER_SETTINGS
+}
 
 def _row_to_card(row):
     d = dict(row)
@@ -16,18 +50,20 @@ def _row_to_card(row):
 def init_schema(conn: sqlite3.Connection):
     """Create core tables once and enforce foreign keys."""
     cur = conn.cursor()
-    cur.executescript("""
+    cur.executescript(f"""
     CREATE TABLE IF NOT EXISTS folders (
         id         INTEGER PRIMARY KEY,
         name       TEXT UNIQUE,
         parent_id  INTEGER,
         folder_settings JSON,
         FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE SET NULL
+                      
+        CHECK (parent_id IS NOT NULL OR id = 1)
     );
 
     CREATE TABLE IF NOT EXISTS flashcards (
         id         INTEGER PRIMARY KEY,
-        folder_id    INTEGER,
+        folder_id    INTEGER NOT NULL DEFAULT {DEFAULT_FOLDER_SETTINGS['id']},
         batch_id   INTEGER, 
 
         question   TEXT NOT NULL,
@@ -47,6 +83,24 @@ def init_schema(conn: sqlite3.Connection):
         created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );          
 
+    """)
+
+    cur.executescript(f"""
+    INSERT OR IGNORE INTO folders(id, name, parent_id) VALUES ({DEFAULT_FOLDER_SETTINGS["id"]}, '{DEFAULT_FOLDER_SETTINGS["id"]}', NULL);
+
+    CREATE TRIGGER IF NOT EXISTS prevent_root_update
+    BEFORE UPDATE OF name, parent_id ON folders
+    WHEN old.id = {DEFAULT_FOLDER_SETTINGS["id"]}
+    BEGIN
+    SELECT RAISE(ABORT, 'root folder is locked');
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS prevent_root_delete
+    BEFORE DELETE ON folders
+    WHEN old.id = {DEFAULT_FOLDER_SETTINGS["id"]}
+    BEGIN
+    SELECT RAISE(ABORT, 'root folder cannot be deleted');
+    END;
     """)
     conn.commit()
 
@@ -91,10 +145,11 @@ def create_flashcard(conn: sqlite3.Connection, card: dict, batch_id: int):
     question = card["question"]
     answer = card["answer"]
     other_data = json.dumps({k: v for k, v in card.items() if k not in ("question", "answer")})
+    rep_data = make_default_rep_data()
 
     cur.execute(
-        "INSERT INTO flashcards (question, answer, other_data, batch_id) VALUES (?, ?, ?, ?)",
-        (question, answer, other_data, batch_id)
+        "INSERT INTO flashcards (question, answer, other_data, rep_data, batch_id) VALUES (?, ?, ?, ?, ?)",
+        (question, answer, other_data, rep_data, batch_id)
     )
     conn.commit()
 
@@ -193,6 +248,43 @@ def get_folder_id_from_name(conn: sqlite3.Connection, folder_name: str):
     return row["id"]
 
 
+# ----------- Effective folder settings -----------
+def get_folder_settings(conn: sqlite3.Connection, folder_id: int):
+    """
+    Return the *effective* spaced‑repetition settings for the given folder.
+
+    The search starts at `folder_id` and walks **upward** through the
+    `parent_id` chain until it finds the first non‑NULL `folder_settings`
+    JSON blob. If no ancestor stores settings, the function falls back to
+    `DEFAULT_FOLDER_SETTINGS`.
+    """
+
+    cur = conn.cursor()
+    current_id = folder_id
+
+    while current_id is not None:
+        cur.execute(
+            "SELECT parent_id, folder_settings FROM folders WHERE id = ?",
+            (current_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise ValueError(f"No folder with id {current_id} found")
+
+        parent_id, settings_json = row
+        if settings_json:
+            try:
+                return json.loads(settings_json)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid JSON in folder_settings for folder {current_id}: {exc}"
+                ) from exc
+
+        current_id = parent_id
+
+    raise ValueError(f"No parent folder with settings found!")
+
+
 
 def get_due_cards(conn: sqlite3.Connection):
     conn.row_factory = sqlite3.Row
@@ -227,8 +319,7 @@ def _build_folder_node(conn: sqlite3.Connection, folder_row: sqlite3.Row):
         "children": children,
     }
 
-
-def get_folder_tree(conn: sqlite3.Connection, root_id: int | None = None):
+def get_folder_tree(conn: sqlite3.Connection, root_id: int):
     """
     Return the folder hierarchy as JSON‑serialisable dict(s).
 
@@ -237,11 +328,6 @@ def get_folder_tree(conn: sqlite3.Connection, root_id: int | None = None):
     """
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
-
-    if root_id is None:
-        cur.execute("SELECT * FROM folders WHERE parent_id IS NULL")
-        root_rows = cur.fetchall()
-        return [_build_folder_node(conn, r) for r in root_rows]
 
     cur.execute("SELECT * FROM folders WHERE id = ?", (root_id,))
     root_row = cur.fetchone()
@@ -331,9 +417,12 @@ class FlashcardDB:
     def get_due_cards(self):
         return get_due_cards(self.conn)
 
-    def get_folder_tree(self, root_id: int | None = None):
+    def get_folder_tree(self, root_id: int):
         return get_folder_tree(self.conn, root_id)
-    
+
+    def get_folder_settings(self, folder_id: int):
+        return get_folder_settings(self.conn, folder_id)
+
     def print_db(self):
         print_db(self.conn)
 
