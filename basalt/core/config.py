@@ -8,12 +8,14 @@ config_file_path = os.path.join(config_dir, "config.json")
 def default_configs():
     return { 
         "data_dir" : user_data_dir("basalt"), #should look like /Users/alexanderchin/Library/Application Support/basalt
-        "hotkey" : "<cmd>+b", 
         "custom_prompt" : "Focus on the important ideas that will help me learn as much as possible. ",
         "custom_commands" : {
             "n" : "Please generate {} flashcards.", 
             "c" : "Include detailed explanations."
-        }, 
+        },
+        "hotkeys" : {
+            "<cmd>+b" : "capture clip",
+        },
         "provider" : None, 
         "model" : None,
         "api_key" : None
@@ -30,7 +32,6 @@ def get_configs():
         set_configs(configs)
 
     return configs
-
 
 def set_configs(configs):
 

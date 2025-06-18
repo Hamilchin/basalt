@@ -1,6 +1,4 @@
-import sqlite3, json
-from basalt.core.datetime_utils import dt_to_sql_timestamp, now_dt
-
+import sqlite3, json, os
 
 def make_default_rep_data():
     return {
@@ -31,20 +29,24 @@ DEFAULT_FOLDER_SETTINGS = {
 }
 
 ROOT_FOLDER_DEFAULTS = {
-    "id" : 0, 
-    "name" : "root", 
-    "parent_id" : None, 
-    "folder_settings" : DEFAULT_FOLDER_SETTINGS
+    "id": 0,           # root folder id
+    "name": "/",       # or "root"
+    "parent_id": None,
+    "folder_settings": DEFAULT_FOLDER_SETTINGS
 }
 
-def _row_to_card(row):
+def row_to_dict(row):
     d = dict(row)
-    for k in ("other_data", "rep_data"):
-        if d.get(k):
+    required_json_cols = {"other_data", "rep_data", "folder_settings"}
+    for k, v in list(d.items()):
+        if v is None or not isinstance(v, str):
+            continue
+        if v.startswith("{") or v.startswith("["):
             try:
-                d[k] = json.loads(d[k])
+                d[k] = json.loads(v)
             except (json.JSONDecodeError, TypeError) as e:
-                raise ValueError(f"Invalid JSON stored in column '{k}': {e}") from e
+                if k in required_json_cols:
+                    raise ValueError(f"Invalid JSON stored in column '{k}': {e}") from e
     return d
 
 def init_schema(conn: sqlite3.Connection):
@@ -58,12 +60,12 @@ def init_schema(conn: sqlite3.Connection):
         folder_settings JSON,
         FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE SET NULL
                       
-        CHECK (parent_id IS NOT NULL OR id = 1)
+        CHECK (parent_id IS NOT NULL OR id = {ROOT_FOLDER_DEFAULTS['id']})
     );
 
     CREATE TABLE IF NOT EXISTS flashcards (
         id         INTEGER PRIMARY KEY,
-        folder_id    INTEGER NOT NULL DEFAULT {DEFAULT_FOLDER_SETTINGS['id']},
+        folder_id    INTEGER NOT NULL DEFAULT {ROOT_FOLDER_DEFAULTS['id']},
         batch_id   INTEGER, 
 
         question   TEXT NOT NULL,
@@ -86,18 +88,18 @@ def init_schema(conn: sqlite3.Connection):
     """)
 
     cur.executescript(f"""
-    INSERT OR IGNORE INTO folders(id, name, parent_id) VALUES ({DEFAULT_FOLDER_SETTINGS["id"]}, '{DEFAULT_FOLDER_SETTINGS["id"]}', NULL);
+    INSERT OR IGNORE INTO folders(id, name, parent_id) VALUES ({ROOT_FOLDER_DEFAULTS["id"]}, '{ROOT_FOLDER_DEFAULTS["name"]}', NULL);
 
     CREATE TRIGGER IF NOT EXISTS prevent_root_update
     BEFORE UPDATE OF name, parent_id ON folders
-    WHEN old.id = {DEFAULT_FOLDER_SETTINGS["id"]}
+    WHEN old.id = {ROOT_FOLDER_DEFAULTS["id"]}
     BEGIN
     SELECT RAISE(ABORT, 'root folder is locked');
     END;
 
     CREATE TRIGGER IF NOT EXISTS prevent_root_delete
     BEFORE DELETE ON folders
-    WHEN old.id = {DEFAULT_FOLDER_SETTINGS["id"]}
+    WHEN old.id = {ROOT_FOLDER_DEFAULTS["id"]}
     BEGIN
     SELECT RAISE(ABORT, 'root folder cannot be deleted');
     END;
@@ -145,7 +147,7 @@ def create_flashcard(conn: sqlite3.Connection, card: dict, batch_id: int):
     question = card["question"]
     answer = card["answer"]
     other_data = json.dumps({k: v for k, v in card.items() if k not in ("question", "answer")})
-    rep_data = make_default_rep_data()
+    rep_data = json.dumps(make_default_rep_data())
 
     cur.execute(
         "INSERT INTO flashcards (question, answer, other_data, rep_data, batch_id) VALUES (?, ?, ?, ?, ?)",
@@ -218,7 +220,52 @@ def get_card(conn: sqlite3.Connection, card_id: int):
     cur = conn.cursor()
     cur.execute("SELECT * FROM flashcards WHERE id = ?", (card_id,))
     row = cur.fetchone()
-    return _row_to_card(row) if row else None
+    if row is None:
+        raise ValueError(f"No flashcard with id {card_id} found")
+    return row_to_dict(row)
+
+
+def get_folder(conn: sqlite3.Connection, folder_id: int):
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM folders WHERE id = ?", (folder_id,))
+    row = cur.fetchone()
+    if row is None:
+        raise ValueError(f"No folder with id {folder_id} found")
+    return row_to_dict(row)
+
+
+def get_batch(conn: sqlite3.Connection, batch_id: int):
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM batches WHERE id = ?", (batch_id,))
+    row = cur.fetchone()
+    if row is None:
+        raise ValueError(f"No batch with id {batch_id} found")
+    return row_to_dict(row)
+
+# ----------- new getters for all folders/cards/batches -----------
+def get_all_folders(conn: sqlite3.Connection):
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM folders ORDER BY name ASC")
+    rows = cur.fetchall()
+    return [row_to_dict(r) for r in rows]
+
+def get_all_cards(conn: sqlite3.Connection):
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM flashcards ORDER BY id ASC")
+    rows = cur.fetchall()
+    return [row_to_dict(r) for r in rows]
+
+def get_all_batches(conn: sqlite3.Connection):
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM batches ORDER BY id ASC")
+    rows = cur.fetchall()
+    return [row_to_dict(r) for r in rows]
+
 
 
 def get_cards_in_batch(conn: sqlite3.Connection, batch_id: int):
@@ -226,7 +273,7 @@ def get_cards_in_batch(conn: sqlite3.Connection, batch_id: int):
     cur = conn.cursor()
     cur.execute("SELECT * FROM flashcards WHERE batch_id = ?", (batch_id,))
     rows = cur.fetchall()
-    return [_row_to_card(r) for r in rows]
+    return [row_to_dict(r) for r in rows]
 
 
 def get_cards_in_folder(conn: sqlite3.Connection, folder_id: int):
@@ -235,7 +282,7 @@ def get_cards_in_folder(conn: sqlite3.Connection, folder_id: int):
     cur = conn.cursor()
     cur.execute("SELECT * FROM flashcards WHERE folder_id = ?", (folder_id,))
     rows = cur.fetchall()
-    return [_row_to_card(r) for r in rows]
+    return [row_to_dict(r) for r in rows]
 
 def get_folder_id_from_name(conn: sqlite3.Connection, folder_name: str):
     """Convenience wrapper that resolves a folder name → id and delegates to get_cards_in_folder."""
@@ -247,7 +294,6 @@ def get_folder_id_from_name(conn: sqlite3.Connection, folder_name: str):
         raise ValueError(f"No folder named '{folder_name}' found")
     return row["id"]
 
-
 # ----------- Effective folder settings -----------
 def get_folder_settings(conn: sqlite3.Connection, folder_id: int):
     """
@@ -255,8 +301,7 @@ def get_folder_settings(conn: sqlite3.Connection, folder_id: int):
 
     The search starts at `folder_id` and walks **upward** through the
     `parent_id` chain until it finds the first non‑NULL `folder_settings`
-    JSON blob. If no ancestor stores settings, the function falls back to
-    `DEFAULT_FOLDER_SETTINGS`.
+    JSON blob.
     """
 
     cur = conn.cursor()
@@ -293,7 +338,7 @@ def get_due_cards(conn: sqlite3.Connection):
         "SELECT * FROM flashcards WHERE next_due IS NOT NULL AND next_due <= CURRENT_TIMESTAMP ORDER BY next_due ASC"
     )
     rows = cur.fetchall()
-    return [_row_to_card(r) for r in rows]
+    return [row_to_dict(r) for r in rows]
 
 
 # =========== Folder tree ================
@@ -361,7 +406,9 @@ class FlashcardDB:
     SQLite connection held in `self.conn`.
     """
 
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str):        
+        db_path = os.path.expanduser(db_path)
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
@@ -410,6 +457,21 @@ class FlashcardDB:
 
     def get_cards_in_folder(self, folder_id: int):
         return get_cards_in_folder(self.conn, folder_id)
+
+    def get_folder(self, folder_id: int):
+        return get_folder(self.conn, folder_id)
+
+    def get_batch(self, batch_id: int):
+        return get_batch(self.conn, batch_id)
+
+    def get_all_folders(self):
+        return get_all_folders(self.conn)
+
+    def get_all_cards(self):
+        return get_all_cards(self.conn)
+
+    def get_all_batches(self):
+        return get_all_batches(self.conn)
 
     def get_folder_id_from_name(self, folder_name: str):
         return get_folder_id_from_name(self.conn, folder_name)

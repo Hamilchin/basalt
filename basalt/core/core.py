@@ -1,6 +1,6 @@
 import json, os
 from basalt.core.llm import call_model
-from basalt.core.database import FlashcardDB as db
+from basalt.core.database import FlashcardDB as db, ROOT_FOLDER_DEFAULTS
 
 def create_prompt(custom_prompt, custom_commands, user_inputs):
 
@@ -42,27 +42,6 @@ def extract_json_array(text):
     
     return json.loads(text[start : end + 1])
 
-def display_tree(configs, id=None):
-    db_path = os.path.join(configs["data_dir"], "flashcard_data.db")
-    
-    with db(db_path) as database:
-        print_folder_tree(database.get_folder_tree(id))
-
-def print_folder_tree(tree, indent=0):
-    """Recursively pretty-print a folder tree structure."""
-    prefix = "    " * indent + ("├── " if indent else "")
-    if isinstance(tree, list):
-        for node in tree:
-            print_folder_tree(node, indent)
-    else:
-        print(f"{prefix}{tree['name']} (id: {tree['id']})")
-        for card_id in tree["cards"]:
-            print("    " * (indent + 1) + f"- card {card_id}")
-        for child in tree["children"]:
-            print_folder_tree(child, indent + 1)
-
-
-
 def make_flashcard(content, user_inputs, configs):
 
     if not content or not configs:
@@ -70,7 +49,6 @@ def make_flashcard(content, user_inputs, configs):
 
     prompt = create_prompt(configs["custom_prompt"], configs["custom_commands"], user_inputs)
 
-    print("calling model from core")
     text_resp = call_model(prompt, content, configs)
 
     try:
@@ -85,4 +63,24 @@ def make_flashcard(content, user_inputs, configs):
         database.store_batch(flashcards, content)
     
     print("make_flashcard finished from core")
+
+
+
+def display_tree(configs, id=ROOT_FOLDER_DEFAULTS["id"]):
+    db_path = os.path.join(configs["data_dir"], "flashcard_data.db")
+    with db(db_path) as database:
+        print_folder_tree(database.get_folder_tree(id))
+
+def print_folder_tree(tree, indent=2):
+    """Recursively pretty-print a folder tree structure."""
+    prefix = "    " * indent + ("├── " if indent else "")
+    if isinstance(tree, list):
+        for node in tree:
+            print_folder_tree(node, indent)
+    else:
+        print(f"{prefix}{tree['name']} (id: {tree['id']})")
+        for card_id in tree["cards"]:
+            print("    " * (indent + 1) + f"- card {card_id}")
+        for child in tree["children"]:
+            print_folder_tree(child, indent + 1)
 
