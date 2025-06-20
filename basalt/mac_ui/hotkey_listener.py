@@ -1,6 +1,6 @@
 from pynput.keyboard import GlobalHotKeys
 from basalt.core.config import get_configs
-from basalt.core.command_utils import run_command
+from basalt.core.basalt_commands import run_command
 import shlex
 
 def start_hotkey_listener(): #NEEDS RELOAD FOR CONFIG SETTINGS CHANGE

@@ -59,3 +59,7 @@ def set_config(config_name, new_value):
         configs[config_name] = new_value #NEED TO ADD ERROR CHECKING LIKE DATA_DIR
     
     set_configs(configs)
+
+
+def get_db_path():
+    return os.path.join(get_configs()["data_dir"], "flashcard_data.db")

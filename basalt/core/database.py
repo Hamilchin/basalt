@@ -1,12 +1,19 @@
-import sqlite3, json, os
+import sqlite3, json, os, threading
+db_lock = threading.RLock()
 
 def make_default_rep_data():
     return {
     "history" : []
     }
 
+def thread_safe(fn):
+    def wrapper(*args, **kwargs):
+        with db_lock:
+            return fn(*args, **kwargs)
+    return wrapper
+
 DEFAULT_FOLDER_SETTINGS = {
-    "algorithm" : "sm2", 
+    "algorithm" : "sm2",
     "sm2_settings": {
         "unit_time": 24,
         "initial_intervals": [1, 6],
@@ -73,7 +80,7 @@ def init_schema(conn: sqlite3.Connection):
         other_data      JSON,
 
         rep_data      JSON,
-        next_due      TIMESTAMP,
+        next_due      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
         FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
@@ -106,19 +113,6 @@ def init_schema(conn: sqlite3.Connection):
     """)
     conn.commit()
 
-def store_batch(db_path: str, cards: list[dict], content:str):
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    init_schema(conn)
-
-    batch_id = create_batch(conn, content)
-
-    for card in cards:
-        create_flashcard(conn, card, batch_id)
-    conn.close()
-
-
 
 # =========== Creators ================
 
@@ -131,8 +125,6 @@ def create_folder(conn: sqlite3.Connection, folder_name: str) -> int:
     return cur.lastrowid
 
 def create_batch(conn: sqlite3.Connection, content: str) -> int:
-    """Ensure a folder exists; return its id."""
-
     cur = conn.cursor()
     cur.execute("INSERT INTO batches (source_text) VALUES (?)", (content,))
     conn.commit()
@@ -406,24 +398,29 @@ class FlashcardDB:
     SQLite connection held in `self.conn`.
     """
 
+    @thread_safe
     def __init__(self, db_path: str):        
         db_path = os.path.expanduser(db_path)
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        self.conn = sqlite3.connect(db_path)
+        self.conn = sqlite3.connect(db_path, timeout=2.0)
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA foreign_keys = ON")
         init_schema(self.conn)
 
     # ---------- creators ----------
+    @thread_safe
     def create_folder(self, folder_name: str) -> int:
         return create_folder(self.conn, folder_name)
 
+    @thread_safe
     def create_batch(self, content: str) -> int:
         return create_batch(self.conn, content)
 
+    @thread_safe
     def create_flashcard(self, card: dict, batch_id: int) -> int:
         return create_flashcard(self.conn, card, batch_id)
 
+    @thread_safe
     def store_batch(self, cards: list[dict], content: str) -> int:
         """Insert a new batch and all associated cards, returning the batch id."""
         batch_id = self.create_batch(content)
@@ -432,19 +429,24 @@ class FlashcardDB:
         return batch_id
 
     # ---------- updaters ----------
+    @thread_safe
     def update_flashcard_fields(self, card_id: int, fields: dict):
         update_flashcard_fields(self.conn, card_id, fields)
 
+    @thread_safe
     def update_folder_fields(self, folder_id: int, fields: dict):
         update_folder_fields(self.conn, folder_id, fields)
 
     # ---------- deleters ----------
+    @thread_safe
     def delete_flashcard(self, card_id: int):
         delete_flashcard(self.conn, card_id)
 
+    @thread_safe
     def delete_folder(self, folder_id: int, recursive: bool = False):
         delete_folder(self.conn, folder_id, recursive)
 
+    @thread_safe
     def delete_batch(self, batch_id: int):
         delete_batch(self.conn, batch_id)
 

@@ -1,5 +1,6 @@
 
 import requests
+import logging
 
 def call_model(prompt, content, configs, history=None, temperature=0.7, max_tokens=2048):
     """
@@ -95,11 +96,15 @@ def call_model(prompt, content, configs, history=None, temperature=0.7, max_toke
 
 
     # ---------- Network call ----------
+    logging.debug("model called")
+
     try:
         resp = requests.post(url, headers=headers, json=body, timeout=30)
         resp.raise_for_status()
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(f"{provider} request failed: {exc}")
+    
+    logging.debug("response recieved")
 
 
     try:

@@ -1,14 +1,61 @@
 from basalt.core.config import get_configs, set_config
-from basalt.core.core import display_tree
-from basalt.core.wipe import clear_cache, clear_configs, clear_db
 from basalt.core.daemon import start_daemon, socket_path
 from basalt.core.database import FlashcardDB
+from basalt.core.spaced_repetition import review_flashcard
 from multiprocessing.connection import Client
 from pyperclip import paste
 from pynput import keyboard
-import fire, sys, json, os
+import fire, sys, os
 
-def set(config_name, new_value):
+
+
+def move_flashcard_to_folder_name(flashcard_id, folder_name):
+    with FlashcardDB(get_db_path()) as db:
+        folder_id = db.get_folder_id_from_name(folder_name)
+        db.update_flashcard_fields(flashcard_id, {"folder_id": folder_id})
+
+
+def clear_db():
+    """
+    Delete the flashcard database defined in the current Basalt configs.
+    """
+    configs = get_configs()
+    db_path = os.path.join(configs["data_dir"], "flashcard_data.db")
+    if os.path.exists(db_path):
+        os.remove(db_path)
+        print(f"Deleted DB at: {db_path}")
+    else:
+        print("No DB file found to delete.")
+
+def clear_cache():
+    """
+    Remove Basalt's cache directory (found via appdirs).
+    """
+    cache_path = user_cache_dir("basalt")
+    if os.path.exists(cache_path):
+        shutil.rmtree(cache_path)
+        print(f"Deleted cache at: {cache_path}")
+    else:
+        print("No cache directory found.")
+
+def clear_configs():
+    """
+    Remove the user-specific Basalt configuration directory so that default
+    configs are regenerated on the next run.
+    """
+    config_dir = user_config_dir("basalt")
+    if os.path.exists(config_dir):
+        shutil.rmtree(config_dir)
+        print(f"Deleted configs at: {config_dir}")
+    else:
+        print("No configs directory found.")
+
+#FUNCTIONS TO INTERACT WITH BASALT; I.E. ONES THAT MAY BE CALLED THROUGH HOTKEYS
+#AND ONES THAT ARE CALLED IN BOTH CLI AND MacOS GUI. 
+#THESE RAISE NORMAL ERRORS; MUST CATCH IF YOU WANT DIFFERENT ERROR BEHAVior
+#none of these return anything. They are meant to be called in a "command line style" way. 
+
+def set(config_name, new_value): #TODO: ADD MORE SPECIFIC ERROR HANDLING
     configs = get_configs
     if config_name not in configs: 
         raise ValueError(f"'{config_name}' is not a valid config")
@@ -56,7 +103,7 @@ def capture(input=None, file_path=None, **user_inputs):
          "user_inputs" : user_inputs, 
          "configs": configs}
         )
-    
+
 def reset(*targets, quiet: bool = False):
     """
     Reset Basalt state.
@@ -97,58 +144,23 @@ def reset(*targets, quiet: bool = False):
         clear_configs()
 
 
-def dev(clean: bool = True):
+def dev(clean=False):
     if clean:
         clear_db()
         clear_cache()
     start_daemon()
 
-def inbox():
-    configs = get_configs()
-    db_path = os.path.join(configs["data_dir"], "flashcard_data.db")
-    with FlashcardDB(db_path) as db:
-        while True:
-            current_cards = db.get_due_cards()
-
-            if current_cards: 
-                current_card = current_cards.pop(0)
-                id, folder_id, batch_id, question, answer, other_data, rep_data, next_due, created_at = current_card["id"], current_card["folder_id"], current_card["batch_id"], current_card["question"], current_card["answer"], current_card["other_data"], current_card["rep_data"], current_card["next_due"], current_card["created_at"]
-
-                current_folder = db.get_folder(folder_id)
-                current_batch = db.get_batch(batch_id)
-
-                print(f"folder: {current_folder["folder_name"]} | inbox: {len(current_cards)} remaining")
-                print(f"QUESTION: {question}" )
-                print(f"ANSWER: {answer}")
-        
-
-#========== UNIVERSAL UTILITY FUNCTIONS ===========
-
-def 
-
-# id         INTEGER PRIMARY KEY,
-#         folder_id    INTEGER NOT NULL DEFAULT {ROOT_FOLDER_DEFAULTS['id']},
-#         batch_id   INTEGER, 
-
-#         question   TEXT NOT NULL,
-#         answer     TEXT NOT NULL,
-#         other_data      JSON,
-
-#         rep_data      JSON,
-#         next_due      TIMESTAMP,
-#         created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
-#         FOREIGN
 
 COMMANDS_DICT = {
     "set": set,
-    "list": list,
     "capture": capture,
     "reset": reset,
     "dev" : dev
 }
 
-def run_command(argv=None):
+#========================================================================
+
+def parse_argv(argv=None):
     if not argv:
         argv = sys.argv[1:]
 
@@ -162,4 +174,5 @@ def run_command(argv=None):
         else:
             new_argv.append(arg)
 
-    fire.Fire(COMMANDS_DICT, command=new_argv)
+def run_command(argv):
+    fire.Fire(COMMANDS_DICT, command=argv)
