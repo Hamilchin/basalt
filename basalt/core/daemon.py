@@ -8,12 +8,22 @@ from concurrent.futures import ThreadPoolExecutor
 from multiprocessing.connection import Listener
 from appdirs import user_cache_dir
 
-from basalt.core.llm import call_model
+from basalt.core.api_calls import call_model, get_youtube_transcript
 from basalt.core.database import FlashcardDB
-from basalt.core.config import get_db_path
+from basalt.core.config import db_path, socket_path
 
 
-#============= MAKE FLASHCARD HELPERS =================
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s %(name)s: %(message)s"
+)
+logger.setLevel(logging.INFO)
+
+
+
+# ==== THREAD JOBS =======
 
 def create_prompt(custom_prompt, custom_commands, user_inputs):
 
@@ -46,19 +56,9 @@ def create_prompt(custom_prompt, custom_commands, user_inputs):
 
     return prompt
 
-
-def extract_json_array(text):
-
-    start, end = text.find('['), text.rfind(']')
-    if start == -1 or end == -1:
-        raise ValueError("Not wrapped correctly in square brackets")
-    
-    return json.loads(text[start : end + 1])
-
-
 def make_flashcard(content, user_inputs, configs):
 
-    logging.debug("make_flashcard called")
+    logger.debug("make_flashcard called")
 
     if not content or not configs:
         raise ValueError(f"No {"configs" if not configs else "content"} passed to make_flashcard! (this should never happen)")
@@ -67,41 +67,27 @@ def make_flashcard(content, user_inputs, configs):
 
     text_resp = call_model(prompt, content, configs)
 
-    try:
-        flashcards = extract_json_array(text_resp)
-    except Exception as e:
-        return None
 
-    with FlashcardDB(get_db_path()) as database:
-        logging.debug("storing batch from core")
+    start, end = text_resp.find('['), text_resp.rfind(']')
+    if start == -1 or end == -1:
+        raise ValueError("Not wrapped correctly in square brackets")
+    
+    flashcards = json.loads(text_resp[start : end + 1])
+
+
+    with FlashcardDB(db_path()) as database:
+        logger.debug("storing batch from core")
         database.store_batch(flashcards, content)
     
-    logging.debug("make_flashcard finished from core")
+    logger.debug("make_flashcard finished from core")
 
-#============= MAKE FLASHCARD =================
+def _transcribe_then_flashcard(url, user_inputs, configs):
+    text = get_youtube_transcript(url)
+    make_flashcard(text, user_inputs, configs)
 
-def socket_path() -> str:
-    return os.path.join(user_cache_dir("basalt"), "daemon.sock")
+# =========== (thread jobs ^) ======== 
 
-def _submit_job(executor: ThreadPoolExecutor, data: dict) -> None:
-    #exceptions in job do not kill listener
-
-    content, data, configs = data["content"], data["user_inputs"], data["configs"]
-
-    logging.info("submitting job with content: %s ...", content if len(content) < 40 else content[:40])
-
-    fut = executor.submit(
-        make_flashcard, content, data, configs
-    )
-
-    def _log_done(fut):
-        if fut.exception():
-            logging.exception("flashcard job failed", exc_info=fut.exception())
-        else:
-            logging.info("Flashcard batch finished")
-
-    fut.add_done_callback(_log_done)
-
+# ==== DAEMON =======
 
 def start_daemon(max_workers: int = 10) -> None:
 
@@ -115,30 +101,55 @@ def start_daemon(max_workers: int = 10) -> None:
     srv = Listener(str(path), authkey=b"basalt")
 
     def _stop(*_):
-        logging.info("Force shutdown requested")
+        logger.info("Force shutdown requested")
         srv.close()
         executor.shutdown(wait=False)
 
     signal.signal(signal.SIGINT, _stop)
     signal.signal(signal.SIGTERM, _stop)
 
-    logging.info("Daemon started with PID %d", os.getpid())
-    logging.info("listener running on %s", path)
+    logger.info("Daemon started with PID %d", os.getpid())
+    logger.info("listener running on %s", path)
 
     try:
         while True:
             try:
                 conn = srv.accept()
             except OSError:
-                logging.info("shutdown requested")
+                logger.info("shutdown requested")
                 break
 
             try:
-                _submit_job(executor, conn.recv())
+                data = conn.recv()
+
+                # === job submit handling === 
+                kind = data.get("kind")
+                if kind == "url":
+                    fut = executor.submit(
+                        _transcribe_then_flashcard,
+                        data["url"],
+                        data["user_inputs"],
+                        data["configs"],
+                    )
+                else:
+                    fut = executor.submit(
+                        make_flashcard,
+                        data["content"],
+                        data["user_inputs"],
+                        data["configs"],
+                    )
+
+                fut.add_done_callback(
+                    lambda f: logger.exception("job failed", exc_info=f.exception())
+                    if f.exception()
+                    else logger.info("job finished"),
+                )
+                # === job submit handling ^^^ === 
+
             except Exception:
-                logging.exception("invalid client payload")
+                logger.exception("invalid client payload")
     finally:
-        logging.info("daemon exiting")
+        logger.info("daemon exiting")
         srv.close()
 
 if __name__ == "__main__":

@@ -1,36 +1,4 @@
-from basalt.core.database import FlashcardDB as db
-from basalt.core.config import get_configs
-from basalt.core.datetime_utils import dt_to_sql_timestamp, now_dt, datetime
 from typing import List, Tuple
-
-
-
-def review_flashcard(flashcard_id, score:int): #to avoid double-reviewing at start, call after every flashcard init with score=5. 
-    configs = get_configs()
-    data_dir = configs["data_dir"]
-    with db(data_dir) as database:
-        flashcard = database.get_card(flashcard_id)
-        if flashcard: 
-
-            rep_settings = database.get_folder_settings(flashcard["folder_id"])
-            history = flashcard["rep_data"]["history"]
-            now = now_dt()
-            history.append((score, dt_to_sql_timestamp(now)))
-            database.update_flashcard_fields(flashcard_id, {"rep_data": flashcard["rep_data"]})
-            #rep_data has been mutated
-
-            if rep_settings["algorithm"] == "sm2":
-                sm2_settings = rep_settings["sm2_settings"]
-                interval = get_interval_sm2(history, sm2_settings) #in hours
-                next_due = now + datetime.timedelta(hours=interval)
-                sql_next_due = dt_to_sql_timestamp(next_due)
-                database.update_flashcard_fields(flashcard_id, {"next_due": sql_next_due})
-            else:
-                raise NotImplementedError(f"Other spaced repetition algorithm {rep_settings["algorithm"]} not supported yet!")
-
-        else:
-            raise ValueError(f"Missing flashcard requested to update: id {flashcard_id}")
-
 
 def get_interval_sm2(
     history: List[Tuple[int, str]],

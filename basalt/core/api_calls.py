@@ -1,6 +1,37 @@
-
 import requests
-import logging
+from youtube_transcript_api import YouTubeTranscriptApi  # type: ignore
+import re, logging
+logger = logging.getLogger(__name__)
+
+def get_youtube_transcript(video_url):
+
+    # returns the 11-char YouTube video ID or None
+    def yt_id(url: str):
+        pattern = (
+            r"(?:youtu\.be/|"          # youtu.be/abc…
+            r"youtube\.com/(?:"
+            r"watch.*?[?&]v=|"         # youtube.com/watch?v=abc…
+            r"embed/|"                 # youtube.com/embed/abc…
+            r"shorts/))"               # youtube.com/shorts/abc…
+            r"([\w-]{11})"             # ← capture exactly 11-char ID
+        )
+        match = re.search(pattern, url)
+        return match.group(1) if match else None
+    
+    video_id = yt_id(video_url)
+
+    if not video_id:
+        raise ValueError(f"Unable to find id in YouTube url provided: {video_url}")
+
+    logger.debug("getting youtube transcript w/ i.d.:" + video_id)
+    
+    try:
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+    except Exception as e:
+        raise RuntimeError(f"Transcript could not be fetched: {e}")
+    
+    return "\n".join(entry['text'] for entry in transcript)
+    
 
 def call_model(prompt, content, configs, history=None, temperature=0.7, max_tokens=2048):
     """
@@ -96,7 +127,7 @@ def call_model(prompt, content, configs, history=None, temperature=0.7, max_toke
 
 
     # ---------- Network call ----------
-    logging.debug("model called")
+    logger.debug("model called")
 
     try:
         resp = requests.post(url, headers=headers, json=body, timeout=30)
@@ -104,7 +135,7 @@ def call_model(prompt, content, configs, history=None, temperature=0.7, max_toke
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(f"{provider} request failed: {exc}")
     
-    logging.debug("response recieved")
+    logger.debug("response recieved")
 
 
     try:

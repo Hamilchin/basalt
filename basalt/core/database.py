@@ -75,8 +75,8 @@ def init_schema(conn: sqlite3.Connection):
         folder_id    INTEGER NOT NULL DEFAULT {ROOT_FOLDER_DEFAULTS['id']},
         batch_id   INTEGER, 
 
-        question   TEXT NOT NULL,
-        answer     TEXT NOT NULL,
+        question   TEXT NOT NULL DEFAULT '',
+        answer     TEXT NOT NULL DEFAULT '',
         other_data      JSON,
 
         rep_data      JSON,
@@ -95,7 +95,7 @@ def init_schema(conn: sqlite3.Connection):
     """)
 
     cur.executescript(f"""
-    INSERT OR IGNORE INTO folders(id, name, parent_id) VALUES ({ROOT_FOLDER_DEFAULTS["id"]}, '{ROOT_FOLDER_DEFAULTS["name"]}', NULL);
+    INSERT OR IGNORE INTO folders(id, name, parent_id, folder_settings) VALUES ({ROOT_FOLDER_DEFAULTS["id"]}, '{ROOT_FOLDER_DEFAULTS["name"]}', NULL, '{json.dumps(DEFAULT_FOLDER_SETTINGS)}');
 
     CREATE TRIGGER IF NOT EXISTS prevent_root_update
     BEFORE UPDATE OF name, parent_id ON folders
@@ -152,9 +152,16 @@ def create_flashcard(conn: sqlite3.Connection, card: dict, batch_id: int):
 
 # =========== Updaters ================
 
-
 def update_flashcard_fields(conn: sqlite3.Connection, card_id: int, fields: dict):
     cur = conn.cursor()
+    # Serialize any dict or list values for JSON columns
+    serialized_fields = {}
+    for key, value in fields.items():
+        if isinstance(value, (dict, list)):
+            serialized_fields[key] = json.dumps(value)
+        else:
+            serialized_fields[key] = value
+    fields = serialized_fields
     keys = ", ".join([f"{k} = ?" for k in fields])
     values = list(fields.values()) + [card_id]
     cur.execute(f"UPDATE flashcards SET {keys} WHERE id = ?", values)
@@ -172,7 +179,6 @@ def update_folder_fields(conn: sqlite3.Connection, folder_id: int, fields: dict)
     conn.commit()    
 
 # =========== Deleters ================
-
 
 def delete_flashcard(conn: sqlite3.Connection, card_id: int):
     cur = conn.cursor()
@@ -203,8 +209,6 @@ def delete_batch(conn: sqlite3.Connection, batch_id: int):
         raise ValueError(f"No batch with id {batch_id} found to delete")
     conn.commit()
 
-
-
 # =========== Getters ================
 
 def get_card(conn: sqlite3.Connection, card_id: int):
@@ -216,7 +220,6 @@ def get_card(conn: sqlite3.Connection, card_id: int):
         raise ValueError(f"No flashcard with id {card_id} found")
     return row_to_dict(row)
 
-
 def get_folder(conn: sqlite3.Connection, folder_id: int):
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
@@ -226,67 +229,6 @@ def get_folder(conn: sqlite3.Connection, folder_id: int):
         raise ValueError(f"No folder with id {folder_id} found")
     return row_to_dict(row)
 
-
-def get_batch(conn: sqlite3.Connection, batch_id: int):
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM batches WHERE id = ?", (batch_id,))
-    row = cur.fetchone()
-    if row is None:
-        raise ValueError(f"No batch with id {batch_id} found")
-    return row_to_dict(row)
-
-# ----------- new getters for all folders/cards/batches -----------
-def get_all_folders(conn: sqlite3.Connection):
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM folders ORDER BY name ASC")
-    rows = cur.fetchall()
-    return [row_to_dict(r) for r in rows]
-
-def get_all_cards(conn: sqlite3.Connection):
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM flashcards ORDER BY id ASC")
-    rows = cur.fetchall()
-    return [row_to_dict(r) for r in rows]
-
-def get_all_batches(conn: sqlite3.Connection):
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM batches ORDER BY id ASC")
-    rows = cur.fetchall()
-    return [row_to_dict(r) for r in rows]
-
-
-
-def get_cards_in_batch(conn: sqlite3.Connection, batch_id: int):
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM flashcards WHERE batch_id = ?", (batch_id,))
-    rows = cur.fetchall()
-    return [row_to_dict(r) for r in rows]
-
-
-def get_cards_in_folder(conn: sqlite3.Connection, folder_id: int):
-    """Return all flashcards (as dicts) whose folder_id == folder_id."""
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT * FROM flashcards WHERE folder_id = ?", (folder_id,))
-    rows = cur.fetchall()
-    return [row_to_dict(r) for r in rows]
-
-def get_folder_id_from_name(conn: sqlite3.Connection, folder_name: str):
-    """Convenience wrapper that resolves a folder name → id and delegates to get_cards_in_folder."""
-    conn.row_factory = sqlite3.Row
-    cur = conn.cursor()
-    cur.execute("SELECT id FROM folders WHERE name = ?", (folder_name,))
-    row = cur.fetchone()
-    if row is None:
-        raise ValueError(f"No folder named '{folder_name}' found")
-    return row["id"]
-
-# ----------- Effective folder settings -----------
 def get_folder_settings(conn: sqlite3.Connection, folder_id: int):
     """
     Return the *effective* spaced‑repetition settings for the given folder.
@@ -309,6 +251,7 @@ def get_folder_settings(conn: sqlite3.Connection, folder_id: int):
             raise ValueError(f"No folder with id {current_id} found")
 
         parent_id, settings_json = row
+
         if settings_json:
             try:
                 return json.loads(settings_json)
@@ -321,7 +264,61 @@ def get_folder_settings(conn: sqlite3.Connection, folder_id: int):
 
     raise ValueError(f"No parent folder with settings found!")
 
+def get_batch(conn: sqlite3.Connection, batch_id: int):
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM batches WHERE id = ?", (batch_id,))
+    row = cur.fetchone()
+    if row is None:
+        raise ValueError(f"No batch with id {batch_id} found")
+    return row_to_dict(row)
 
+def get_all_folders(conn: sqlite3.Connection):
+
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM folders ORDER BY name ASC")
+    rows = cur.fetchall()
+    return [row_to_dict(r) for r in rows]
+
+def get_all_cards(conn: sqlite3.Connection):
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM flashcards ORDER BY id ASC")
+    rows = cur.fetchall()
+    return [row_to_dict(r) for r in rows]
+
+def get_all_batches(conn: sqlite3.Connection):
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM batches ORDER BY id ASC")
+    rows = cur.fetchall()
+    return [row_to_dict(r) for r in rows]
+
+def get_cards_in_batch(conn: sqlite3.Connection, batch_id: int):
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM flashcards WHERE batch_id = ?", (batch_id,))
+    rows = cur.fetchall()
+    return [row_to_dict(r) for r in rows]
+
+def get_cards_in_folder(conn: sqlite3.Connection, folder_id: int):
+    """Return all flashcards (as dicts) whose folder_id == folder_id."""
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM flashcards WHERE folder_id = ?", (folder_id,))
+    rows = cur.fetchall()
+    return [row_to_dict(r) for r in rows]
+
+def get_folder_id_from_name(conn: sqlite3.Connection, folder_name: str):
+    """Convenience wrapper that resolves a folder name → id and delegates to get_cards_in_folder."""
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM folders WHERE name = ?", (folder_name,))
+    row = cur.fetchone()
+    if row is None:
+        raise ValueError(f"No folder named '{folder_name}' found")
+    return row["id"]
 
 def get_due_cards(conn: sqlite3.Connection):
     conn.row_factory = sqlite3.Row
@@ -331,7 +328,6 @@ def get_due_cards(conn: sqlite3.Connection):
     )
     rows = cur.fetchall()
     return [row_to_dict(r) for r in rows]
-
 
 # =========== Folder tree ================
 
@@ -371,24 +367,6 @@ def get_folder_tree(conn: sqlite3.Connection, root_id: int):
     if root_row is None:
         raise ValueError(f"No folder with id {root_id} found")
     return _build_folder_node(conn, root_row)
-
-def print_db(conn: sqlite3.Connection):
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
-    tables = [row[0] for row in cursor.fetchall()]
-
-    for table in tables:
-        print(f"\n=== {table.upper()} ===")
-        cursor.execute(f"PRAGMA table_info({table})")
-        cols = [col[1] for col in cursor.fetchall()]
-        print(" | ".join(cols))
-        print("-" * (len(" | ".join(cols))))
-
-        cursor.execute(f"SELECT * FROM {table}")
-        for row in cursor.fetchall():
-            print(" | ".join(str(x) for x in row))
-
 
 # =========== Database class wrapper ================
 
@@ -486,9 +464,6 @@ class FlashcardDB:
 
     def get_folder_settings(self, folder_id: int):
         return get_folder_settings(self.conn, folder_id)
-
-    def print_db(self):
-        print_db(self.conn)
 
     # ---------- misc ----------
     def close(self):

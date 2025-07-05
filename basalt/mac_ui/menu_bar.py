@@ -1,48 +1,46 @@
 import rumps
-from datetime import datetime
+rumps.debug_mode(True)
 
-import os
-import sys
+from basalt.core.database import FlashcardDB
+from basalt.core.config import db_path
 
-def resource_path(filename: str) -> str:
-    """
-    Return an absolute path to an asset that works both in development
-    and when bundled inside a .app (py2app / PyInstaller).
-    """
-    if getattr(sys, "frozen", False):  # Running from bundled executable
-        base = os.path.dirname(sys.executable)
-    else:  # Running from source
-        base = os.path.dirname(__file__)
-    return os.path.join(base, "assets", filename)
+def node_to_rumps(node):
+    """Recursively turn a folder-tree node into rumps menu syntax."""
+    if not node["children"]:
+        return node["name"]
+    return {node["name"]:
+            [node_to_rumps(c) for c in node["children"]]}
 
-class BasaltApp(rumps.App):
+class Demo(rumps.App):
     def __init__(self):
-        super().__init__("🪨", icon=resource_path("logow.png"), menu=["Review Now", None, "Quit"])
-        self.due_cards = [{"id": 1, "question": "What is a monad?"}]
-        self.last_review = None
-        self.timer = rumps.Timer(self.check_due_cards, 60)  # every 60 sec
-        self.timer.start()
 
-    def check_due_cards(self, _):
-        if self.due_cards:
-            rumps.notification("Basalt", "You have flashcards due.", "Click the menu to review.")
-            self.icon = resource_path("logow.png")  # optional dynamic icon
+        self.db = FlashcardDB(db_path())
 
-    @rumps.clicked("Review Now")
-    def review_card(self, _):
-        if not self.due_cards:
-            rumps.alert("No cards due!")
-            return
-        card = self.due_cards.pop(0)
-        w = rumps.Window(card["question"], "Answer:", default_text="")
-        result = w.run()
-        if result.clicked:
-            self.log_review(card["id"], result.text)
+        folders = node_to_rumps(self.db.get_folder_tree(0))
+        breakpoint()
 
-    def log_review(self, card_id, answer):
-        print(f"[{datetime.now()}] Card {card_id} answered: {answer}")
-        self.last_review = datetime.now()
-        self.icon = None  # reset icon
+        super().__init__(
+            "Basalt", 
+            title="🪨", 
+            menu=[
+            rumps.MenuItem("Review",  key="r"),
+            {"Capture": [
+                rumps.MenuItem("Clipboard", key="1"),      # Cmd-1
+                rumps.MenuItem("URL", key="2"),      # Cmd-2
+                rumps.MenuItem("", key="3"),      # Cmd-3
+            ]}, 
+            rumps.MenuItem("Settings", key=","),
+            folders, 
+            None,
+        ])
+
+    @rumps.clicked("Review", key="r")
+    def on_review(self, sender):
+        pass
+
+
+
+
 
 if __name__ == "__main__":
-    BasaltApp().run()
+    Demo().run()
