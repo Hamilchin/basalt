@@ -63,7 +63,7 @@ def init_schema(conn: sqlite3.Connection):
     CREATE TABLE IF NOT EXISTS folders (
         id         INTEGER PRIMARY KEY,
         name       TEXT UNIQUE,
-        parent_id  INTEGER,
+        parent_id  INTEGER DEFAULT {ROOT_FOLDER_DEFAULTS['id']},
         folder_settings JSON,
         FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE SET NULL
                       
@@ -72,7 +72,7 @@ def init_schema(conn: sqlite3.Connection):
 
     CREATE TABLE IF NOT EXISTS flashcards (
         id         INTEGER PRIMARY KEY,
-        folder_id    INTEGER NOT NULL DEFAULT {ROOT_FOLDER_DEFAULTS['id']},
+        folder_id    INTEGER NOT NULL,
         batch_id   INTEGER, 
 
         question   TEXT NOT NULL DEFAULT '',
@@ -138,12 +138,13 @@ def create_flashcard(conn: sqlite3.Connection, card: dict, batch_id: int):
 
     question = card["question"]
     answer = card["answer"]
-    other_data = json.dumps({k: v for k, v in card.items() if k not in ("question", "answer")})
+    folder_id = card.get("folder_id", ROOT_FOLDER_DEFAULTS['id'])
+    other_data = json.dumps({k: v for k, v in card.items() if k not in ("question", "answer", "folder_id")})
     rep_data = json.dumps(make_default_rep_data())
 
     cur.execute(
-        "INSERT INTO flashcards (question, answer, other_data, rep_data, batch_id) VALUES (?, ?, ?, ?, ?)",
-        (question, answer, other_data, rep_data, batch_id)
+        "INSERT INTO flashcards (question, answer, other_data, rep_data, batch_id, folder_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (question, answer, other_data, rep_data, batch_id, folder_id)
     )
     conn.commit()
 
@@ -337,8 +338,8 @@ def _build_folder_node(conn: sqlite3.Connection, folder_row: sqlite3.Row):
 
     cur = conn.cursor()
     # card ids directly within this folder
-    cur.execute("SELECT id FROM flashcards WHERE folder_id = ?", (folder_id,))
-    card_ids = [r[0] for r in cur.fetchall()]
+    cur.execute("SELECT * FROM flashcards WHERE folder_id = ?", (folder_id,))
+    cards = [row_to_dict(row) for row in cur.fetchall()]
 
     # recurse on children
     cur.execute("SELECT * FROM folders WHERE parent_id = ?", (folder_id,))
@@ -348,7 +349,7 @@ def _build_folder_node(conn: sqlite3.Connection, folder_row: sqlite3.Row):
     return {
         "id": folder_id,
         "name": folder_row["name"],
-        "cards": card_ids,
+        "cards": cards,
         "children": children,
     }
 
@@ -459,7 +460,7 @@ class FlashcardDB:
     def get_due_cards(self):
         return get_due_cards(self.conn)
 
-    def get_folder_tree(self, root_id: int):
+    def get_folder_tree(self, root_id: int=ROOT_FOLDER_DEFAULTS["id"]):
         return get_folder_tree(self.conn, root_id)
 
     def get_folder_settings(self, folder_id: int):

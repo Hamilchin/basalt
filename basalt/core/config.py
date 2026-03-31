@@ -18,11 +18,12 @@ def default_configs():
         "data_dir" : user_data_dir("basalt"), #should look like /Users/alexanderchin/Library/Application Support/basalt
         "custom_prompt" : "Focus on the important ideas that will help me learn as much as possible. ",
         "custom_commands" : {
-            "n" : "Please generate {} flashcards.", 
-            "c" : "Include detailed explanations."
+            "n" : "Please generate {} flashcards.",
+            "c" : "Include detailed explanations.",
+            "f" : "Automatically interpolate folder_ids.", 
         },
         "hotkeys" : {
-            "<cmd>+b" : "capture clip",
+            "<cmd>+b" : "capture clip -f",
         },
         "provider" : None, 
         "model" : None,

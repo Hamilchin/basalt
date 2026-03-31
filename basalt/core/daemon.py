@@ -25,16 +25,23 @@ logger.setLevel(logging.INFO)
 
 # ==== THREAD JOBS =======
 
-def create_prompt(custom_prompt, custom_commands, user_inputs):
+def create_prompt(custom_prompt, custom_commands, user_inputs, **kwargs):
 
     system_prompt = f"""
         You are a flashcard generator for a spaced repetition app. 
 
         Given this piece of text, extract a key idea (or ideas) that would help the user learn and remember the knowledge contained in the text. Assume they've read the text already; your aim should be to jog their mind, and do not over-explain. Represent each as a flashcard object in JSON format with "question" and "answer" fields, and possibly more, if the user specifies. Return a single JSON array of such flashcards. 
-        
+
         Use clear, concise phrasing. Each fact should form its own flashcard. 
         Only output valid JSON; no other text. 
 
+
+        If and only if the user requests, add an extra field called folder_id for each of the cards based on what folder you think is most relevant to the flashcard at hand. Here are the folders and their respective IDs:
+
+        {json.dumps(kwargs["folder_structure"], indent=2)}
+
+        If flashcard content does not fit exactly into any folder, put it in the ID of the root folder. Again, only add folder_id fields if the user specifically asks. 
+        
     """
 
     user_prompt = ""
@@ -56,6 +63,7 @@ def create_prompt(custom_prompt, custom_commands, user_inputs):
 
     return prompt
 
+
 def make_flashcard(content, user_inputs, configs):
 
     logger.debug("make_flashcard called")
@@ -63,7 +71,10 @@ def make_flashcard(content, user_inputs, configs):
     if not content or not configs:
         raise ValueError(f"No {"configs" if not configs else "content"} passed to make_flashcard! (this should never happen)")
 
-    prompt = create_prompt(configs["custom_prompt"], configs["custom_commands"], user_inputs)
+    with FlashcardDB(db_path()) as database:
+        folder_structure = database.get_folder_tree()
+
+    prompt = create_prompt(configs["custom_prompt"], configs["custom_commands"], user_inputs, folder_structure=folder_structure)
 
     text_resp = call_model(prompt, content, configs)
 

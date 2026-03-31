@@ -88,9 +88,7 @@ def assert_valid_folder_edit(folder_id: int, edit_path: str, new_value) -> None:
     raise ValueError(f"Invalid folder edit path: {edit_path}")
 
 def assert_valid_flashcard_edit(card_id: int, edit_path: str, new_value) -> None:
-    if edit_path in ("question", "answer") or edit_path.startswith("other_data."):
-        if not isinstance(new_value, str):
-            raise ValueError(f"{edit_path} must be a string")
+    if edit_path in ("question", "answer", "folder_id") or edit_path.startswith("other_data."):
         return
     raise ValueError(f"Invalid flashcard edit path: {edit_path}")
 
@@ -262,3 +260,4 @@ def clear_configs():
         shutil.rmtree(config_dir)
         return True
     return False
+
